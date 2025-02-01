@@ -1,14 +1,13 @@
 // Copyright (c) 2024 ZyptAI, tim.barrow@zyptai.com
 // Proprietary and confidential to ZyptAI
 // File: src/functions/shared/tableHelper.js
-// Purpose: Helper functions for Azure Table storage operations in deployment tracking
+// Purpose: Helper functions for Azure Table Storage operations in deployment tracking
 
-const { TableClient, TableServiceClient } = require("@azure/data-tables");
+const { TableClient } = require("@azure/data-tables");
 
 class TableHelper {
     constructor(connectionString) {
         this.connectionString = connectionString;
-        this.tableService = TableServiceClient.fromConnectionString(connectionString);
         this.tables = {
             customers: "Customers",
             environments: "CustomerEnvironments",
@@ -18,48 +17,41 @@ class TableHelper {
         };
     }
 
-    async getTableClient(tableName) {
-        return TableClient.fromConnectionString(this.connectionString, tableName);
-    }
-
-    // Customer operations
     async createCustomer(customerData) {
         try {
-            const client = await this.getTableClient(this.tables.customers);
+            const client = TableClient.fromConnectionString(this.connectionString, this.tables.customers);
             const entity = {
                 partitionKey: customerData.customerId,
                 rowKey: customerData.customerId,
                 timestamp: new Date().toISOString(),
                 ...customerData
             };
-            await client.createEntity(entity);
+            await client.upsertEntity(entity, "Replace");
             return true;
         } catch (error) {
-            throw new Error(`Error creating customer record: ${error.message}`);
+            throw new Error(`Customer operation failed: ${error.message}`);
         }
     }
 
-    // Environment operations
     async createEnvironment(environmentData) {
         try {
-            const client = await this.getTableClient(this.tables.environments);
+            const client = TableClient.fromConnectionString(this.connectionString, this.tables.environments);
             const entity = {
                 partitionKey: environmentData.customerId,
                 rowKey: environmentData.environmentId,
                 timestamp: new Date().toISOString(),
                 ...environmentData
             };
-            await client.createEntity(entity);
+            await client.upsertEntity(entity, "Replace");
             return true;
         } catch (error) {
-            throw new Error(`Error creating environment record: ${error.message}`);
+            throw new Error(`Environment operation failed: ${error.message}`);
         }
     }
 
-    // Deployment operations
     async createDeploymentRecord(deploymentData) {
         try {
-            const client = await this.getTableClient(this.tables.deployments);
+            const client = TableClient.fromConnectionString(this.connectionString, this.tables.deployments);
             const entity = {
                 partitionKey: deploymentData.customerId,
                 rowKey: `${Date.now()}_${deploymentData.environmentId}`,
@@ -70,14 +62,13 @@ class TableHelper {
             await client.createEntity(entity);
             return entity.rowKey;
         } catch (error) {
-            throw new Error(`Error creating deployment record: ${error.message}`);
+            throw new Error(`Deployment operation failed: ${error.message}`);
         }
     }
 
-    // Resource operations
     async createResourceRecord(resourceData) {
         try {
-            const client = await this.getTableClient(this.tables.resources);
+            const client = TableClient.fromConnectionString(this.connectionString, this.tables.resources);
             const entity = {
                 partitionKey: resourceData.deploymentId,
                 rowKey: `${resourceData.resourceType}_${Date.now()}`,
@@ -88,14 +79,13 @@ class TableHelper {
             await client.createEntity(entity);
             return true;
         } catch (error) {
-            throw new Error(`Error creating resource record: ${error.message}`);
+            throw new Error(`Resource operation failed: ${error.message}`);
         }
     }
 
-    // Integration endpoint operations
     async createEndpoint(endpointData) {
         try {
-            const client = await this.getTableClient(this.tables.endpoints);
+            const client = TableClient.fromConnectionString(this.connectionString, this.tables.endpoints);
             const entity = {
                 partitionKey: endpointData.customerId,
                 rowKey: `${endpointData.serviceType}_${Date.now()}`,
@@ -106,14 +96,13 @@ class TableHelper {
             await client.createEntity(entity);
             return true;
         } catch (error) {
-            throw new Error(`Error creating endpoint record: ${error.message}`);
+            throw new Error(`Endpoint operation failed: ${error.message}`);
         }
     }
 
-    // Query operations
     async queryEntities(tableName, customerId) {
         try {
-            const client = await this.getTableClient(tableName);
+            const client = TableClient.fromConnectionString(this.connectionString, tableName);
             const entities = client.listEntities({
                 queryOptions: { filter: `PartitionKey eq '${customerId}'` }
             });
@@ -124,18 +113,41 @@ class TableHelper {
             }
             return results;
         } catch (error) {
-            throw new Error(`Error querying entities: ${error.message}`);
+            throw new Error(`Query operation failed: ${error.message}`);
         }
     }
 
-    // Update operations
     async updateEntity(tableName, entity) {
         try {
-            const client = await this.getTableClient(tableName);
+            const client = TableClient.fromConnectionString(this.connectionString, tableName);
             await client.updateEntity(entity, "Merge");
             return true;
         } catch (error) {
-            throw new Error(`Error updating entity: ${error.message}`);
+            throw new Error(`Update operation failed: ${error.message}`);
+        }
+    }
+
+    async batchOperation(tableName, entities, operation = "create") {
+        try {
+            const client = TableClient.fromConnectionString(this.connectionString, tableName);
+            const batch = [];
+            
+            for (const entity of entities) {
+                batch.push({
+                    operation: operation === "create" ? "upsert" : operation,
+                    entity: {
+                        ...entity,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+            }
+            
+            if (batch.length > 0) {
+                await client.submitTransaction(batch);
+            }
+            return true;
+        } catch (error) {
+            throw new Error(`Batch operation failed: ${error.message}`);
         }
     }
 }
